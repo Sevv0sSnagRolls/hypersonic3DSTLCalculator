@@ -42,19 +42,6 @@ def readBinarySTL():
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 #if __name__ == "__main__":
 #    triangles = readASCIIStl("Cube 12.STL.txt")
 #    
