@@ -6,72 +6,25 @@ Created on Sat Jun 20 14:28:36 2020
 """
 
 
-import scipy.optimize
 import numpy as np
-from DiamondWingProfileGenerator import wingProfileGenerator
 import matplotlib.pyplot as plt
 
-def weakShock(beta, theta, M1, gamma):
-    A = (M1**2)*((np.sin(beta))**2) - 1
-    B = (M1**2)*( gamma + np.cos(2*beta) )  +  2
-    return 2.0/(np.tan(beta))*A/B - np.tan(theta)
-
-def weakShockDownstreamValues(beta, theta, M1, gamma, P1):
-    A = 1 + ( (M1**2)*( (np.sin(beta))**2 )*((gamma - 1.0)/2.0) )
-    B = gamma*(M1**2)*( (np.sin(beta))**2 ) - ((gamma - 1.0)/2.0)
-    M2 = 1/(np.sin(beta - theta))*(A/B)**0.5
-    
-    C = 2*gamma*( (M1**2)*( (np.sin(beta))**2 ) - 1 )/(gamma + 1)
-    P2 = P1*(1 + C)
-    
-    return M2, P2
-    
-def vPrandtlMeyer(M, gamma):
-    A = (gamma + 1)/(gamma - 1)
-    B = (M**2) - 1
-    return (A**0.5)*np.arctan( ( (1/A)*B )**0.5 ) - np.arctan( B**0.5 )
-
-def prandtlMeyer(M2, theta, M1, gamma):
-    return vPrandtlMeyer(M2, gamma) - vPrandtlMeyer(M1, gamma) - theta
-
-def expansionFanDownstreamPressure(M1, M2, P1, gamma):
-    A = 1 + (M1**2)*(gamma - 1)/2
-    B = 1 + (M2**2)*(gamma - 1)/2
-    C = (gamma)/(gamma - 1)
-    return P1*( (A/B)**C )
-
-def flowCalculator(theta, thetaDir, topOrBot, M1, gamma, P1, thetaMin=0.5*np.pi/180, thetaMax=30*np.pi/180):
-    theta *= np.pi/180
-    if topOrBot == 'Top':
-        if thetaDir == 'CCW':
-            #then use weak shock stuff
-            initialGuess = theta*2
-            beta = scipy.optimize.newton(weakShock, initialGuess, args=(theta, M1, gamma))
-            M2, P2 = weakShockDownstreamValues(beta, theta, M1, gamma, P1)
-        elif thetaDir == 'CW':
-            initialGuess = M1*0.5
-            M2 = scipy.optimize.newton(prandtlMeyer, initialGuess, args=(theta, M1, gamma))
-            P2 = expansionFanDownstreamPressure(M1, M2, P1, gamma)
-        else:
-            print('ERROR!')
-    
-    elif topOrBot == 'Bot':
-        if thetaDir == 'CW':
-            #then use weak shock stuff
-            initialGuess = theta*2
-            beta = scipy.optimize.newton(weakShock, initialGuess, args=(theta, M1, gamma))
-            M2, P2 = weakShockDownstreamValues(beta, theta, M1, gamma, P1)
-        elif thetaDir == 'CCW':
-            initialGuess = M1*0.5
-            M2 = scipy.optimize.newton(prandtlMeyer, initialGuess, args=(theta, M1, gamma))
-            P2 = expansionFanDownstreamPressure(M1, M2, P1, gamma)
-        else:
-            print('ERROR!')
-            
-    return M2, P2
-
+from DiamondWingProfileGenerator import wingProfileGenerator
+import supersonicFlowCalculator
+import altitudeModel
 
 def directionVector(v1, v2):
+    '''
+    Take two normal vectors from the upstream cell and the current cell
+    
+    Assumes the vectors are inward normal vectors (as used by the force 
+    calculator)
+    
+    if the vectors both have positive x direction, the flow is compressed,
+    
+    if vectors both have negative x direction
+    '''
+    
     if v1[0]*v2[0] > 0:
         #both +ve x
         if (v2[1] - v1[1]) < 0.0:
@@ -84,29 +37,35 @@ def directionVector(v1, v2):
         #negative so > 90 deg
         return 'bugger it'
         
-def objectForcesCalculator(Vinf, Pinf, gamma, topPanels, botPanels, topNormals, botNormals, span):    
+def objectForcesCalculator(Vinf, Pinf, gamma, topPanels, botPanels, 
+                           topNormals, botNormals, span):    
+    
     VinfUnitVec = Vinf/np.linalg.norm(Vinf)
+    
     MTop = [Minf, 0, 0, 0]
     pTop = [Pinf, 0, 0, 0]
     forcesTop = np.array([0.0,0.0,0.0], dtype=float)  
     topPanelsUnitVectors =[]
+    
     for i in range(0, len(topPanels)):
-        topPanelsUnitVectors.append(topPanels[i]/np.linalg.norm(topPanels[i]))
+        topPanelsUnitVectors.append( topPanels[i]/np.linalg.norm(topPanels[i]) )
         if i == 0:
-            theta = np.arccos( np.dot(VinfUnitVec, topPanelsUnitVectors[i]) )*180/np.pi
-            thetaDir = directionVector(VinfUnitVec, topPanelsUnitVectors[i])
-            MTop[i+1], pTop[i+1] = flowCalculator(theta, thetaDir, 'Top', MTop[i], gamma, pTop[i])
+            theta = round(np.arccos( np.dot(VinfUnitVec, topPanelsUnitVectors[i]) )*180/np.pi, 3)
+            thetaDir = directionVector( VinfUnitVec, topPanelsUnitVectors[i] )
+            MTop[i+1], pTop[i+1] = supersonicFlowCalculator.flowShockCalculator(theta, thetaDir, 'Top', MTop[i], gamma, pTop[i])
         else:
-            theta = np.arccos( np.dot(topPanelsUnitVectors[i-1], topPanelsUnitVectors[i]) )*180/np.pi
+            theta = round(np.arccos( np.dot(topPanelsUnitVectors[i-1], topPanelsUnitVectors[i]) )*180/np.pi, 3)
             thetaDir = directionVector(topPanelsUnitVectors[i-1], topPanelsUnitVectors[i])
-            MTop[i+1], pTop[i+1] = flowCalculator(theta, thetaDir, 'Top', MTop[i], gamma, pTop[i])
+            MTop[i+1], pTop[i+1] = supersonicFlowCalculator.flowShockCalculator(theta, thetaDir, 'Top', MTop[i], gamma, pTop[i])
         
         length = np.linalg.norm(topPanels[i])
-        area = length*span
-        forcesTop[0] += pTop[i]*area*topNormals[i][0] 
-        forcesTop[1] += pTop[i]*area*topNormals[i][1] 
-        print('i: ', i, ' theta: ', theta, MTop[i+1], pTop[i+1] )
-    
+        area = round(length*span, 3)
+        forcesTop[0] += round(pTop[i]*area*topNormals[i][0] , 3)
+        forcesTop[1] += round(pTop[i]*area*topNormals[i][1] , 3)
+        print('i: ', i, ' theta: ', theta, '[DEG] | Area: ', area, 
+              ' [m^2] | Forces x, y:', forcesTop[0], ' ', forcesTop[1]
+              ,'Mach: ', MTop[i+1], 'Pressure [Pa]: ', pTop[i+1] )
+        
     MBot = [Minf, 0, 0, 0]
     pBot = [Pinf, 0, 0, 0]
     forcesBot = np.array([0.0,0.0,0.0], dtype=float)  
@@ -114,36 +73,23 @@ def objectForcesCalculator(Vinf, Pinf, gamma, topPanels, botPanels, topNormals, 
     for i in range(0, len(botPanels)):
         botPanelsUnitVectors.append(botPanels[i]/np.linalg.norm(botPanels[i]))
         if i == 0:
-            theta = np.arccos( np.dot(VinfUnitVec, botPanelsUnitVectors[i]) )*180/np.pi
+            theta = round(np.arccos( np.dot(VinfUnitVec, botPanelsUnitVectors[i]) )*180/np.pi, 3)
             thetaDir = directionVector(VinfUnitVec, botPanelsUnitVectors[i])
-            MBot[i+1], pBot[i+1] = flowCalculator(theta, thetaDir, 'Bot', Minf, gamma, Pinf)
+            MBot[i+1], pBot[i+1] = supersonicFlowCalculator.flowShockCalculator(theta, thetaDir, 'Bot', Minf, gamma, Pinf)
         else:
-            theta = np.arccos( np.dot(botPanelsUnitVectors[i-1], botPanelsUnitVectors[i]) )*180/np.pi
+            theta = round(np.arccos( np.dot(botPanelsUnitVectors[i-1], botPanelsUnitVectors[i]) )*180/np.pi, 3)
             thetaDir = directionVector(botPanelsUnitVectors[i-1], botPanelsUnitVectors[i])
-            MBot[i+1], pBot[i+1] = flowCalculator(theta, thetaDir, 'Bot', MBot[i], gamma, pBot[i])
+            MBot[i+1], pBot[i+1] = supersonicFlowCalculator.flowShockCalculator(theta, thetaDir, 'Bot', MBot[i], gamma, pBot[i])
         
         length = np.linalg.norm(topPanels[i])
-        area = length*span
-        forcesBot[0] += pBot[i]*area*botNormals[i][0] 
-        forcesBot[1] += pBot[i]*area*botNormals[i][1] 
-        print('i: ', i, ' theta: ', theta, MBot[i+1], pBot[i+1] )
+        area = round(length*span, 3)
+        forcesBot[0] += round( pBot[i]*area*botNormals[i][0] , 3)
+        forcesBot[1] += round( pBot[i]*area*botNormals[i][1] , 3)
+        print('i: ', i, ' theta: ', theta, '[DEG] | Area: ', area, 
+              ' [m^2] | Forces x, y:', forcesBot[0], ' ', forcesBot[1] 
+              ,'Mach: ', MTop[i+1], 'Pressure [Pa]: ', pTop[i+1] )
         
     return forcesTop, forcesBot
-
-
-def altitudeModel(altitude):
-    if altitude > 25000:
-        "i have no clue if stupid thing even works here"        
-        T = -131.21 + 0.00299*altitude
-        P = 2.488*( (T +273.1)/216.6 )**-11.388
-    elif altitude < 25000 and altitude > 11000:
-        T = -56.46
-        P = 22.65*np.exp(1.73 - 0.000157*altitude)    
-    else:
-        T = 15.05 - 0.00648*altitude
-        P = 101.29*( (T+273.1)/288.08 )**5.256
-    return T, P
-
 
 def solveDeflectionRange(elevonMinDeflection, elevonMaxDeflection, stepSize):
     Cd = []
@@ -180,16 +126,16 @@ if __name__ == "__main__":
     Minf = 8.0
     gammainf = 1.4
     altitude = 20000 #m
-    AOA = 2.0 #deg
+    AOA = 0.0 #deg
     SS = 0 #deg -> Not sure about sideslip
-    Tinf, Pinf = altitudeModel(altitude)
+    Tinf, Pinf, rhoInf = altitudeModel.altitudeModel(altitude)
     ainf = (1.4*286* (Tinf+273.15) )**0.5
     VinfMag = Minf*ainf
     Vinf = VinfMag*np.array([np.cos(AOA*np.pi/180), np.sin(AOA*np.pi/180), 0.0])
     
     plt.cla()
     
-    Cl, Cd = solveDeflectionRange(-2, 15, 1)
+    Cl, Cd = solveDeflectionRange(0, 15, 1)
     
 #    topPanels, bottomPanels, topNormals, bottomNormals = wingProfileGenerator(c, kt, ktx, ktTopT, kCe, elevonDeflection, True, z=0)       
 #    forcesTop, forcesBot = objectForcesCalculator(Vinf, Pinf, gamma, topPanels, bottomPanels, topNormals, bottomNormals, elevonSpan)

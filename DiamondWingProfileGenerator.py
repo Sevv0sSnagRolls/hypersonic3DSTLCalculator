@@ -139,7 +139,6 @@ def wingProfileGenerator(chord, percentageChordMaxThickness, percentageChordMaxT
     return panelsTop, panelsBot, normalsTop, normalsBot
 
 
-
 def twoDimensionalRotation(vector, theta, degOrRad = 'deg'):
     assert len(vector) == 3
     if degOrRad == 'deg':

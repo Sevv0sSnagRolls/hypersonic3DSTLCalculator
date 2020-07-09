@@ -17,4 +17,7 @@ def altitudeModel(altitude):
     else:
         T = 15.05 - 0.00648*altitude
         P = 101.29*( (T+273.1)/288.08 )**5.256
-    return T, P
+    R = 0.286
+    rho = P/(R*(T + 273.1))
+    P *= 1000 #kPa -> Pa
+    return T, P, rho
